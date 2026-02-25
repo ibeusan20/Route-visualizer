@@ -42,7 +42,7 @@ export class AppController {
     }
 
     init() {
-        // ✅ UI is now filled from the registry (Strategy pattern)
+        // UI is  filled from the registry (Strategy pattern)
         const defs = AlgorithmRegistry.getAll().map(x => ({ key: x.key, label: x.label }));
         this.ui.populateAlgorithmOptions(defs, AlgorithmRegistry.getDefaultKey());
 
@@ -170,7 +170,7 @@ export class AppController {
 
         let pathfinder;
         try {
-            // ✅ Strategy instance is created via registry (no switch/case)
+            // Strategy instance is created via registry (no switch/case)
             pathfinder = AlgorithmRegistry.create(key);
         } catch (e) {
             this.ui.setStatus(e.message);
@@ -471,7 +471,7 @@ export class AppController {
         const startNode = this.state.graph.nodes[this.state.startNodeId];
         const endNode = this.state.graph.nodes[this.state.endNodeId];
 
-        // Cache key so we don't refetch for the same A/B
+        // Cache key so it doesn't refetch for the same A/B
         const cacheKey = `${startNode.lat},${startNode.lng}|${endNode.lat},${endNode.lng}|${this.state.graph.profile}`;
         if (this.state.reference.cacheKey === cacheKey && this.state.referenceRouteRenderer.cachedLatLngs) {
             this.referenceRouteRenderer.setVisible(true);
