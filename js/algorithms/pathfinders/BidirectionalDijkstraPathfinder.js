@@ -55,7 +55,7 @@ export class BidirectionalDijkstraPathfinder extends BasePathfinder {
         };
 
         // Helper to build a reversed adjacency for the backward search
-        // (since our graph stores directed edges, we need incoming edges for "backward Dijkstra")
+        // (since the graph stores directed edges, incoming edges are needed for "backward Dijkstra")
         const incoming = this.#buildIncomingAdjacency(graph);
 
         while (pqF.size() > 0 || pqB.size() > 0) {
@@ -138,7 +138,7 @@ export class BidirectionalDijkstraPathfinder extends BasePathfinder {
                 }
             }
 
-            // Stopping condition: if we already found a meet, and the smallest fronts cannot beat bestCost
+            // Stopping condition: if it already found a meet, and the smallest fronts cannot beat bestCost
             const minF = this.#peekPriority(pqF);
             const minB = this.#peekPriority(pqB);
             const bound = (minF ?? Infinity) + (minB ?? Infinity);

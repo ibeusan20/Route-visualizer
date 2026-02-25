@@ -24,9 +24,9 @@ export class RoadGraphBuilder {
             }
         }
 
-        const nodes = [];                  // internal nodes: index -> { id, osmId, lat, lng }
-        const adjacency = new Map();       // internalNodeId -> [{ to, w, segmentKey }]
-        const segments = new Map();        // segmentKey -> segment metadata
+        const nodes = []; // internal nodes: index -> { id, osmId, lat, lng }
+        const adjacency = new Map(); // internalNodeId -> [{ to, w, segmentKey }]
+        const segments = new Map(); // segmentKey -> segment metadata
         const osmToInternalNodeId = new Map();
 
         let directedEdgesCount = 0;

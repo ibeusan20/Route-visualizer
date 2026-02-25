@@ -31,6 +31,10 @@ export class AppController {
     }
 
     init() {
+        // ✅ UI is now filled from the registry (Strategy pattern)
+        const defs = AlgorithmRegistry.getAll().map(x => ({ key: x.key, label: x.label }));
+        this.ui.populateAlgorithmOptions(defs, AlgorithmRegistry.getDefaultKey());
+
         this.ui.bindHandlers({
             onLoadRoads: () => this.loadRoadNetworkFromCurrentView(),
             onClearPoints: () => this.clearPoints(),
@@ -56,15 +60,6 @@ export class AppController {
         this.state.graph = null;
         this.state.loadingRoads = true;
         this.ui.setLoadButtonDisabled(true);
-
-        const zoom = this.mapManager.getZoom();
-        const areaKm2 = this.mapManager.getViewportAreaKm2();
-
-        if (zoom < 14) {
-            this.ui.setStatus(`Zoom is ${zoom}. Recommended zoom is >= 14 for a cleaner demo.`);
-        } else if (areaKm2 > 25) {
-            this.ui.setStatus(`Current view is large (~${areaKm2.toFixed(1)} km²). Loading may be slower.`);
-        }
 
         try {
             const profile = this.ui.getSelectedProfile();
@@ -132,7 +127,6 @@ export class AppController {
     resetColors() {
         this.stopAndResetSearch(false);
         this.redrawStartEndMarkers();
-
         this.ui.setStats(this.state.graph ? this.buildBaseStatsText() : '');
         this.ui.setStatus('Search colors reset. A/B markers remain.');
     }
@@ -152,16 +146,17 @@ export class AppController {
         }
 
         const key = this.ui.getSelectedAlgorithm();
-        const factory = AlgorithmRegistry[key];
 
-        if (!factory) {
-            this.ui.setStatus(`Unknown algorithm: ${key}`);
+        let pathfinder;
+        try {
+            // ✅ Strategy instance is created via registry (no switch/case)
+            pathfinder = AlgorithmRegistry.create(key);
+        } catch (e) {
+            this.ui.setStatus(e.message);
             return;
         }
 
-        const pathfinder = factory();
         const result = pathfinder.computeSearchEvents(this.state.graph, this.state.startNodeId, this.state.endNodeId);
-
         if (!result.events.length) {
             this.ui.setStatus('No animation events generated.');
             return;
@@ -184,10 +179,7 @@ export class AppController {
             },
             onComplete: (meta) => {
                 this.ui.setPauseButtonLabel('Pause');
-
-                if (meta?.found) this.ui.setStatus(`Finished. Route found (${meta.algorithmName}).`);
-                else this.ui.setStatus(`Finished. No route found (${meta?.algorithmName || 'unknown'}).`);
-
+                this.ui.setStatus(meta?.found ? `Finished. Route found (${meta.algorithmName}).` : `Finished. No route found (${meta?.algorithmName || 'unknown'}).`);
                 this.redrawStartEndMarkers();
                 this.updateLiveStats(null, meta);
             }
@@ -318,7 +310,6 @@ export class AppController {
                 break;
 
             case 'path': {
-                // Mark nodes + mark segments along the path + draw overlay
                 for (let i = 0; i < event.pathNodeIds.length; i++) {
                     const id = event.pathNodeIds[i];
                     const node = graph.nodes[id];

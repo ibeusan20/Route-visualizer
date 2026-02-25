@@ -19,7 +19,7 @@ export class BFSPathfinder extends BasePathfinder {
 
             if (current === goalNodeId) {
                 const pathNodeIds = this.reconstructPath(cameFrom, goalNodeId);
-                // BFS cost here is not real meters; we still compute a "meter-ish" sum using graph weights along the reconstructed path.
+                // BFS cost here is not real meters; still computes a "meter-ish" sum using graph weights along the reconstructed path.
                 const costMeters = this.#estimateMetersFromPath(graph, pathNodeIds);
 
                 events.push({ type: 'path', pathNodeIds, costMeters });

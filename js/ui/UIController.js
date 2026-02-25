@@ -34,8 +34,27 @@ export class UIController {
         this.elements.btnPause.addEventListener('click', handlers.onPause);
     }
 
+    /**
+     * Populate algorithm dropdown from registry definitions.
+     * @param {Array<{key: string, label: string}>} definitions
+     * @param {string} defaultKey
+     */
+    populateAlgorithmOptions(definitions, defaultKey) {
+        const select = this.elements.algorithm;
+        select.innerHTML = '';
+
+        for (const def of definitions) {
+            const opt = document.createElement('option');
+            opt.value = def.key;
+            opt.textContent = def.label;
+            select.appendChild(opt);
+        }
+
+        const keys = definitions.map(d => d.key);
+        select.value = keys.includes(defaultKey) ? defaultKey : (keys[0] || '');
+    }
+
     getSelectedAlgorithm() {
-        // keys: astar, dijkstra, bidijkstra, wastar, greedy, bfs
         return this.elements.algorithm.value;
     }
 
