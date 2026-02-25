@@ -13,7 +13,8 @@ export class UIController {
             btnStart: document.getElementById('btnStart'),
             btnPause: document.getElementById('btnPause'),
             status: document.getElementById('status'),
-            stats: document.getElementById('stats')
+            stats: document.getElementById('stats'),
+            toggleReferenceRoute: document.getElementById('toggleReferenceRoute')
         };
 
         this.initSpeedLabel();
@@ -32,6 +33,11 @@ export class UIController {
         this.elements.btnResetColors.addEventListener('click', handlers.onResetColors);
         this.elements.btnStart.addEventListener('click', handlers.onStart);
         this.elements.btnPause.addEventListener('click', handlers.onPause);
+        if (this.elements.toggleReferenceRoute && handlers.onReferenceToggle) {
+            this.elements.toggleReferenceRoute.addEventListener('change', (e) => {
+                handlers.onReferenceToggle(e.target.checked);
+            });
+        }
     }
 
     /**
@@ -80,5 +86,15 @@ export class UIController {
 
     setStats(text) {
         this.elements.stats.textContent = text || '';
+    }
+
+    isReferenceRouteEnabled() {
+        return Boolean(this.elements.toggleReferenceRoute?.checked);
+    }
+
+    setReferenceRouteEnabled(enabled) {
+        if (this.elements.toggleReferenceRoute) {
+            this.elements.toggleReferenceRoute.checked = Boolean(enabled);
+        }
     }
 }

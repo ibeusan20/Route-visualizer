@@ -3,11 +3,11 @@ import { MapManager } from '../map/MapManager.js';
 import { OverpassService } from '../services/OverpassService.js';
 import { RoadGraphBuilder } from '../graph/RoadGraphBuilder.js';
 import { SearchAnimator } from '../animation/SearchAnimator.js';
-
 import { RoadRenderer } from '../renderers/RoadRenderer.js';
 import { SearchRenderer } from '../renderers/SearchRenderer.js';
-
 import { AlgorithmRegistry } from '../algorithms/AlgorithmRegistry.js';
+import { ReferenceRoutingService } from '../services/ReferenceRoutingService.js';
+import { ReferenceRouteRenderer } from '../renderers/ReferenceRouteRenderer.js';
 
 export class AppController {
     constructor() {
@@ -28,6 +28,17 @@ export class AppController {
             loadingRoads: false,
             counters: null
         };
+
+        this.referenceRoutingService = new ReferenceRoutingService();
+        this.referenceRouteRenderer = new ReferenceRouteRenderer(this.mapManager);
+
+        this.state.reference = {
+            enabled: false,
+            loading: false,
+            cacheKey: null,
+            distanceMeters: null,
+            durationSeconds: null
+        };
     }
 
     init() {
@@ -40,12 +51,16 @@ export class AppController {
             onClearPoints: () => this.clearPoints(),
             onResetColors: () => this.resetColors(),
             onStart: () => this.startSearch(),
-            onPause: () => this.togglePause()
+            onPause: () => this.togglePause(),
+            onReferenceToggle: (enabled) => this.onReferenceToggle(enabled)
         });
 
         this.mapManager.onMapClick((event) => this.handleMapClick(event));
         this.ui.setStatus('Move the map to an area and click "Load roads (view)".');
         this.ui.setStats('');
+
+        this.state.reference.enabled = false;
+        this.referenceRouteRenderer.setVisible(false);
     }
 
     async loadRoadNetworkFromCurrentView() {
@@ -60,6 +75,11 @@ export class AppController {
         this.state.graph = null;
         this.state.loadingRoads = true;
         this.ui.setLoadButtonDisabled(true);
+
+        this.referenceRouteRenderer.clear();
+        this.state.reference.cacheKey = null;
+        this.state.reference.distanceMeters = null;
+        this.state.reference.durationSeconds = null;
 
         try {
             const profile = this.ui.getSelectedProfile();
@@ -87,7 +107,7 @@ export class AppController {
         }
     }
 
-    handleMapClick(event) {
+    async handleMapClick(event) {
         if (!this.state.graph) {
             this.ui.setStatus('Load roads first.');
             return;
@@ -111,6 +131,7 @@ export class AppController {
                 return;
             }
             this.state.endNodeId = nearest.id;
+            await this.updateReferenceRouteIfPossible();
             this.ui.setStatus(`Point B set (node id ${nearest.id}). Ready to run.`);
         }
 
@@ -223,6 +244,10 @@ export class AppController {
         this.state.startNodeId = null;
         this.state.endNodeId = null;
         this.searchRenderer.clearStartEndMarkers();
+        this.state.reference.cacheKey = null;
+        this.state.reference.distanceMeters = null;
+        this.state.reference.durationSeconds = null;
+        this.referenceRouteRenderer.clear();
 
         if (updateStats) {
             this.ui.setStats(this.state.graph ? this.buildBaseStatsText() : '');
@@ -376,6 +401,24 @@ export class AppController {
             `B: ${this.state.endNodeId ?? '-'}`
         ];
 
+        const refDist = this.state.reference?.distanceMeters;
+
+        if (this.state.reference?.enabled) {
+            if (refDist && isFinite(refDist)) {
+                lines.push(`Reference (OSRM) distance: ${refDist.toFixed(1)} m`);
+            } else {
+                lines.push('Reference (OSRM) distance: -');
+            }
+        }
+
+        if (c.pathFound && refDist && isFinite(refDist)) {
+            const our = c.pathCostMeters;
+            const diff = our - refDist;
+            const pct = (diff / refDist) * 100;
+
+            lines.push(`Δ vs reference: ${diff.toFixed(1)} m (${pct.toFixed(2)}%)`);
+        }
+
         if (c.pathFound) {
             lines.push(`Route found: YES`);
             lines.push(`Path nodes: ${c.pathNodeCount}`);
@@ -398,5 +441,69 @@ export class AppController {
         }
 
         this.ui.setStats(lines.join('\n'));
+    }
+
+    async onReferenceToggle(enabled) {
+        this.state.reference.enabled = Boolean(enabled);
+        this.referenceRouteRenderer.setVisible(this.state.reference.enabled);
+
+        if (!this.state.reference.enabled) {
+            this.ui.setStatus('Reference route hidden.');
+            // keep cached? you can keep, but we'll hide only
+            this.updateLiveStats();
+            return;
+        }
+
+        this.ui.setStatus('Reference route enabled. Fetching if A and B are set...');
+        await this.updateReferenceRouteIfPossible();
+    }
+
+    async updateReferenceRouteIfPossible() {
+        if (!this.state.reference.enabled) return;
+        if (this.state.reference.loading) return;
+        if (!this.state.graph) return;
+
+        if (this.state.startNodeId === null || this.state.endNodeId === null) {
+            this.ui.setStatus('Reference route: set A and B first.');
+            return;
+        }
+
+        const startNode = this.state.graph.nodes[this.state.startNodeId];
+        const endNode = this.state.graph.nodes[this.state.endNodeId];
+
+        // Cache key so we don't refetch for the same A/B
+        const cacheKey = `${startNode.lat},${startNode.lng}|${endNode.lat},${endNode.lng}|${this.state.graph.profile}`;
+        if (this.state.reference.cacheKey === cacheKey && this.state.referenceRouteRenderer.cachedLatLngs) {
+            this.referenceRouteRenderer.setVisible(true);
+            this.ui.setStatus('Reference route shown (cached).');
+            return;
+        }
+
+        this.state.reference.loading = true;
+        this.ui.setStatus('Fetching reference route from OSRM demo server...');
+
+        try {
+            const result = await this.referenceRoutingService.fetchRoute(
+                { lat: startNode.lat, lng: startNode.lng },
+                { lat: endNode.lat, lng: endNode.lng }
+            );
+
+            this.state.reference.cacheKey = cacheKey;
+            this.state.reference.distanceMeters = result.distanceMeters;
+            this.state.reference.durationSeconds = result.durationSeconds;
+
+            this.referenceRouteRenderer.setRoute(result.latLngs);
+            this.referenceRouteRenderer.setVisible(true);
+
+            this.ui.setStatus('Reference route loaded (OSRM).');
+            this.updateLiveStats();
+        } catch (err) {
+            console.error(err);
+            this.ui.setStatus(`Reference route failed: ${err.message}`);
+            // If fetch fails, keep it hidden (optional)
+            this.referenceRouteRenderer.hide();
+        } finally {
+            this.state.reference.loading = false;
+        }
     }
 }

@@ -11,6 +11,13 @@ export const APP_CONFIG = {
     overpass: {
         endpoint: 'https://overpass-api.de/api/interpreter',
         timeoutSeconds: 25
+    },
+    referenceRouting: {
+        // OSRM demo server endpoint (demo only – avoid heavy usage)
+        baseUrl: 'https://router.project-osrm.org',
+        profile: 'driving', // OSRM expects /route/v1/{profile}/...
+        geometries: 'geojson',
+        overview: 'full'
     }
 };
 
@@ -40,5 +47,13 @@ export const MAP_STYLES = {
     },
     overlays: {
         finalPath: { color: '#14b85a', weight: 7.5, opacity: 0.85 }
+    },
+    referenceRoute: {
+        polyline: {
+            color: '#ff2bd6',
+            weight: 6,
+            opacity: 0.9,
+            dashArray: '10 10'
+        }
     }
 };
