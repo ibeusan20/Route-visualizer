@@ -23,8 +23,12 @@
             <div class="group">
                 <label for="algorithm">Algorithm</label>
                 <select id="algorithm">
-                    <option value="astar">A*</option>
-                    <option value="dijkstra">Dijkstra</option>
+                    <option value="dijkstra">Dijkstra (optimal)</option>
+                    <option value="astar" selected>A* (optimal)</option>
+                    <option value="bidijkstra">Bidirectional Dijkstra (optimal, faster)</option>
+                    <option value="wastar">Weighted A* ε=1.5 (faster, not optimal)</option>
+                    <option value="greedy">Greedy Best-First (very fast, not optimal)</option>
+                    <option value="bfs">BFS (fast hops, ignores weights)</option>
                 </select>
             </div>
 

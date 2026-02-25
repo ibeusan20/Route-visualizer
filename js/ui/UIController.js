@@ -16,10 +16,10 @@ export class UIController {
             stats: document.getElementById('stats')
         };
 
-        this.#initSpeedLabel();
+        this.initSpeedLabel();
     }
 
-    #initSpeedLabel() {
+    initSpeedLabel() {
         this.elements.speedValue.textContent = this.elements.speed.value;
         this.elements.speed.addEventListener('input', () => {
             this.elements.speedValue.textContent = this.elements.speed.value;
@@ -35,7 +35,8 @@ export class UIController {
     }
 
     getSelectedAlgorithm() {
-        return this.elements.algorithm.value; // astar | dijkstra
+        // keys: astar, dijkstra, bidijkstra, wastar, greedy, bfs
+        return this.elements.algorithm.value;
     }
 
     getSelectedProfile() {

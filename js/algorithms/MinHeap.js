@@ -26,6 +26,11 @@ export class MinHeap {
         return top;
     }
 
+    peek() {
+        if (this.items.length === 0) return null;
+        return this.items[0];
+    }
+
     #bubbleUp(index) {
         while (index > 0) {
             const parentIndex = (index - 1) >> 1;

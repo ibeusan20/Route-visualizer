@@ -2,16 +2,23 @@ import { UIController } from '../ui/UIController.js';
 import { MapManager } from '../map/MapManager.js';
 import { OverpassService } from '../services/OverpassService.js';
 import { RoadGraphBuilder } from '../graph/RoadGraphBuilder.js';
-import { Pathfinder } from '../algorithms/PathFinder.js';
 import { SearchAnimator } from '../animation/SearchAnimator.js';
+
+import { RoadRenderer } from '../renderers/RoadRenderer.js';
+import { SearchRenderer } from '../renderers/SearchRenderer.js';
+
+import { AlgorithmRegistry } from '../algorithms/AlgorithmRegistry.js';
 
 export class AppController {
     constructor() {
         this.ui = new UIController();
         this.mapManager = new MapManager();
+
+        this.roadRenderer = new RoadRenderer(this.mapManager);
+        this.searchRenderer = new SearchRenderer(this.mapManager);
+
         this.overpassService = new OverpassService();
         this.roadGraphBuilder = new RoadGraphBuilder();
-        this.pathfinder = new Pathfinder();
         this.animator = new SearchAnimator();
 
         this.state = {
@@ -19,7 +26,7 @@ export class AppController {
             startNodeId: null,
             endNodeId: null,
             loadingRoads: false,
-            searchCounters: null
+            counters: null
         };
     }
 
@@ -33,7 +40,6 @@ export class AppController {
         });
 
         this.mapManager.onMapClick((event) => this.handleMapClick(event));
-
         this.ui.setStatus('Move the map to an area and click "Load roads (view)".');
         this.ui.setStats('');
     }
@@ -41,11 +47,11 @@ export class AppController {
     async loadRoadNetworkFromCurrentView() {
         if (this.state.loadingRoads) return;
 
-        this.#resetSearchVisualization(true);
-        this.#clearPointsOnly(false);
+        this.stopAndResetSearch(true);
+        this.clearPointsOnly(false);
 
-        this.mapManager.clearRoads();
-        this.mapManager.clearAllOverlays();
+        this.roadRenderer.clear();
+        this.searchRenderer.clearAll();
 
         this.state.graph = null;
         this.state.loadingRoads = true;
@@ -53,10 +59,10 @@ export class AppController {
 
         const zoom = this.mapManager.getZoom();
         const areaKm2 = this.mapManager.getViewportAreaKm2();
+
         if (zoom < 14) {
             this.ui.setStatus(`Zoom is ${zoom}. Recommended zoom is >= 14 for a cleaner demo.`);
-        }
-        if (areaKm2 > 25) {
+        } else if (areaKm2 > 25) {
             this.ui.setStatus(`Current view is large (~${areaKm2.toFixed(1)} km²). Loading may be slower.`);
         }
 
@@ -72,12 +78,10 @@ export class AppController {
             }
 
             this.state.graph = graph;
-            this.mapManager.renderRoadGraph(graph);
+            this.roadRenderer.renderGraph(graph);
 
-            this.ui.setStats(this.#buildBaseStatsText());
-            this.ui.setStatus(
-                `Road network loaded. Click A then B. (nodes: ${graph.nodes.length}, segments: ${graph.segments.size})`
-            );
+            this.ui.setStats(this.buildBaseStatsText());
+            this.ui.setStatus(`Road network loaded. Click A then B. (nodes: ${graph.nodes.length}, segments: ${graph.segments.size})`);
         } catch (error) {
             console.error(error);
             this.ui.setStatus(`Road loading failed: ${error.message}`);
@@ -94,48 +98,42 @@ export class AppController {
             return;
         }
 
-        const nearestNode = this.#findNearestGraphNode(event.latlng);
-        if (!nearestNode) {
+        const nearest = this.findNearestGraphNode(event.latlng);
+        if (!nearest) {
             this.ui.setStatus('No road node found in loaded network.');
             return;
         }
 
-        this.#resetSearchVisualization(true);
+        this.stopAndResetSearch(true);
 
         if (this.state.startNodeId === null || (this.state.startNodeId !== null && this.state.endNodeId !== null)) {
-            this.state.startNodeId = nearestNode.id;
+            this.state.startNodeId = nearest.id;
             this.state.endNodeId = null;
-            this.ui.setStatus(`Point A set (snapped to road node id ${nearestNode.id}). Click point B.`);
+            this.ui.setStatus(`Point A set (snapped to road node id ${nearest.id}). Click point B.`);
         } else {
-            if (nearestNode.id === this.state.startNodeId) {
+            if (nearest.id === this.state.startNodeId) {
                 this.ui.setStatus('Point B cannot be the same node as point A.');
                 return;
             }
-
-            this.state.endNodeId = nearestNode.id;
-            this.ui.setStatus(`Point B set (node id ${nearestNode.id}). Ready to run.`);
+            this.state.endNodeId = nearest.id;
+            this.ui.setStatus(`Point B set (node id ${nearest.id}). Ready to run.`);
         }
 
-        this.#redrawStartEndMarkers();
-        this.ui.setStats(this.#buildBaseStatsText());
+        this.redrawStartEndMarkers();
+        this.ui.setStats(this.buildBaseStatsText());
     }
 
     clearPoints() {
-        this.#resetSearchVisualization(true);
-        this.#clearPointsOnly(true);
+        this.stopAndResetSearch(true);
+        this.clearPointsOnly(true);
         this.ui.setStatus('Points A/B cleared. Click map to place A then B.');
     }
 
     resetColors() {
-        this.#resetSearchVisualization(false);
-        this.#redrawStartEndMarkers();
+        this.stopAndResetSearch(false);
+        this.redrawStartEndMarkers();
 
-        if (this.state.graph) {
-            this.ui.setStats(this.#buildBaseStatsText());
-        } else {
-            this.ui.setStats('');
-        }
-
+        this.ui.setStats(this.state.graph ? this.buildBaseStatsText() : '');
         this.ui.setStatus('Search colors reset. A/B markers remain.');
     }
 
@@ -153,44 +151,45 @@ export class AppController {
             return;
         }
 
-        const algorithm = this.ui.getSelectedAlgorithm();
-        const result = this.pathfinder.computeSearchEvents(
-            this.state.graph,
-            this.state.startNodeId,
-            this.state.endNodeId,
-            algorithm
-        );
+        const key = this.ui.getSelectedAlgorithm();
+        const factory = AlgorithmRegistry[key];
+
+        if (!factory) {
+            this.ui.setStatus(`Unknown algorithm: ${key}`);
+            return;
+        }
+
+        const pathfinder = factory();
+        const result = pathfinder.computeSearchEvents(this.state.graph, this.state.startNodeId, this.state.endNodeId);
 
         if (!result.events.length) {
             this.ui.setStatus('No animation events generated.');
             return;
         }
 
-        this.#resetSearchVisualization(true);
-        this.#initializeSearchCounters();
+        this.stopAndResetSearch(true);
+        this.initializeCounters();
 
         this.ui.setPauseButtonLabel('Pause');
-        this.ui.setStatus(`Animation started (${algorithm === 'astar' ? 'A*' : 'Dijkstra'}).`);
-        this.#updateLiveStats();
+        this.ui.setStatus(`Animation started (${result.meta.algorithmName}).`);
+        this.updateLiveStats({ currentIndex: 0, totalEvents: result.events.length, meta: result.meta });
 
         this.animator.start({
             events: result.events,
             meta: result.meta,
             speedProvider: () => this.ui.getAnimationSpeedMs(),
             onEvent: (event, currentIndex, totalEvents, meta) => {
-                this.#applySearchEvent(event);
-                this.#updateLiveStats({ currentIndex, totalEvents, meta });
+                this.applyEvent(event);
+                this.updateLiveStats({ currentIndex, totalEvents, meta });
             },
             onComplete: (meta) => {
                 this.ui.setPauseButtonLabel('Pause');
-                if (meta?.found) {
-                    this.ui.setStatus(`Finished. Route found (${meta.algorithm === 'astar' ? 'A*' : 'Dijkstra'}).`);
-                } else {
-                    this.ui.setStatus(`Finished. No route found (${meta?.algorithm === 'astar' ? 'A*' : 'Dijkstra'}).`);
-                }
 
-                this.#redrawStartEndMarkers();
-                this.#updateLiveStats(null, meta);
+                if (meta?.found) this.ui.setStatus(`Finished. Route found (${meta.algorithmName}).`);
+                else this.ui.setStatus(`Finished. No route found (${meta?.algorithmName || 'unknown'}).`);
+
+                this.redrawStartEndMarkers();
+                this.updateLiveStats(null, meta);
             }
         });
     }
@@ -212,32 +211,33 @@ export class AppController {
         }
     }
 
-    #findNearestGraphNode(latlng) {
+    // ---------- Helpers ----------
+
+    findNearestGraphNode(latlng) {
         let bestNode = null;
         let bestDistance = Infinity;
 
         for (const node of this.state.graph.nodes) {
-            const distance = this.mapManager.distanceMeters(latlng, { lat: node.lat, lng: node.lng });
-            if (distance < bestDistance) {
-                bestDistance = distance;
+            const d = this.mapManager.distanceMeters(latlng, { lat: node.lat, lng: node.lng });
+            if (d < bestDistance) {
+                bestDistance = d;
                 bestNode = node;
             }
         }
-
         return bestNode;
     }
 
-    #clearPointsOnly(updateStats) {
+    clearPointsOnly(updateStats) {
         this.state.startNodeId = null;
         this.state.endNodeId = null;
-        this.mapManager.clearStartEndMarkers();
+        this.searchRenderer.clearStartEndMarkers();
 
         if (updateStats) {
-            this.ui.setStats(this.state.graph ? this.#buildBaseStatsText() : '');
+            this.ui.setStats(this.state.graph ? this.buildBaseStatsText() : '');
         }
     }
 
-    #redrawStartEndMarkers() {
+    redrawStartEndMarkers() {
         const startNode = this.state.graph && this.state.startNodeId !== null
             ? this.state.graph.nodes[this.state.startNodeId]
             : null;
@@ -246,10 +246,10 @@ export class AppController {
             ? this.state.graph.nodes[this.state.endNodeId]
             : null;
 
-        this.mapManager.drawStartEndMarkers(startNode, endNode);
+        this.searchRenderer.drawStartEnd(startNode, endNode);
     }
 
-    #resetSearchVisualization(keepStats = false) {
+    stopAndResetSearch(keepStats = false) {
         this.animator.stop();
         this.ui.setPauseButtonLabel('Pause');
 
@@ -258,88 +258,86 @@ export class AppController {
             return;
         }
 
-        this.mapManager.clearSearchNodeMarkers();
-        this.mapManager.clearFinalPathOverlay();
-        this.mapManager.resetRoadStyles();
+        this.searchRenderer.clearSearchMarkers();
+        this.searchRenderer.clearFinalPath();
+        this.roadRenderer.resetStyles();
 
-        this.state.searchCounters = null;
+        this.state.counters = null;
 
         if (!keepStats) {
-            this.ui.setStats(this.#buildBaseStatsText());
+            this.ui.setStats(this.buildBaseStatsText());
         }
     }
 
-    #initializeSearchCounters() {
-        this.state.searchCounters = {
-            openNodeIds: new Set(),
+    initializeCounters() {
+        this.state.counters = {
+            openNodes: new Set(),
             closedCount: 0,
-            inspectedSegmentKeys: new Set(),
-            relaxedSegmentKeys: new Set(),
+            inspectedSegments: new Set(),
+            relaxedSegments: new Set(),
             pathFound: false,
             pathNodeCount: 0,
             pathCostMeters: null
         };
     }
 
-    #applySearchEvent(event) {
+    applyEvent(event) {
         const graph = this.state.graph;
-        const counters = this.state.searchCounters;
-        if (!graph || !counters) return;
+        const c = this.state.counters;
+        if (!graph || !c) return;
 
         switch (event.type) {
             case 'open': {
                 const node = graph.nodes[event.nodeId];
-                this.mapManager.setSearchNodeState(event.nodeId, node, 'open');
-                counters.openNodeIds.add(event.nodeId);
+                this.searchRenderer.setNodeState(event.nodeId, node, 'open');
+                c.openNodes.add(event.nodeId);
                 break;
             }
 
             case 'current': {
                 const node = graph.nodes[event.nodeId];
-                this.mapManager.setSearchNodeState(event.nodeId, node, 'current');
+                this.searchRenderer.setNodeState(event.nodeId, node, 'current');
                 break;
             }
 
             case 'closed': {
                 const node = graph.nodes[event.nodeId];
-                this.mapManager.setSearchNodeState(event.nodeId, node, 'closed');
-                counters.closedCount++;
+                this.searchRenderer.setNodeState(event.nodeId, node, 'closed');
+                c.closedCount++;
                 break;
             }
 
             case 'edgeInspect':
-                this.mapManager.setRoadSegmentState(event.segmentKey, 'inspect');
-                counters.inspectedSegmentKeys.add(event.segmentKey);
+                this.roadRenderer.setSegmentState(event.segmentKey, 'inspect');
+                c.inspectedSegments.add(event.segmentKey);
                 break;
 
             case 'edgeRelax':
-                this.mapManager.setRoadSegmentState(event.segmentKey, 'relax');
-                counters.relaxedSegmentKeys.add(event.segmentKey);
+                this.roadRenderer.setSegmentState(event.segmentKey, 'relax');
+                c.relaxedSegments.add(event.segmentKey);
                 break;
 
             case 'path': {
-                const latLngs = [];
-
+                // Mark nodes + mark segments along the path + draw overlay
                 for (let i = 0; i < event.pathNodeIds.length; i++) {
-                    const nodeId = event.pathNodeIds[i];
-                    const node = graph.nodes[nodeId];
-
-                    this.mapManager.setSearchNodeState(nodeId, node, 'path');
-                    latLngs.push([node.lat, node.lng]);
+                    const id = event.pathNodeIds[i];
+                    const node = graph.nodes[id];
+                    this.searchRenderer.setNodeState(id, node, 'path');
 
                     if (i < event.pathNodeIds.length - 1) {
-                        const nextNode = graph.nodes[event.pathNodeIds[i + 1]];
-                        const segmentKey = this.#buildSegmentKeyFromPathNodes(node.osmId, nextNode.osmId);
-                        this.mapManager.setRoadSegmentState(segmentKey, 'path');
+                        const nextId = event.pathNodeIds[i + 1];
+                        const segKey = SearchRenderer.getSegmentKeyBetweenGraphNodes(graph, id, nextId);
+                        this.roadRenderer.setSegmentState(segKey, 'path');
                     }
                 }
 
-                this.mapManager.drawFinalPath(latLngs);
-                counters.pathFound = true;
-                counters.pathNodeCount = event.pathNodeIds.length;
-                counters.pathCostMeters = event.costMeters;
+                this.searchRenderer.drawFinalPath(graph, event.pathNodeIds);
 
-                this.#redrawStartEndMarkers();
+                c.pathFound = true;
+                c.pathNodeCount = event.pathNodeIds.length;
+                c.pathCostMeters = event.costMeters;
+
+                this.redrawStartEndMarkers();
                 break;
             }
 
@@ -348,65 +346,64 @@ export class AppController {
         }
     }
 
-    #buildSegmentKeyFromPathNodes(osmNodeIdA, osmNodeIdB) {
-        return osmNodeIdA < osmNodeIdB
-            ? `${osmNodeIdA}-${osmNodeIdB}`
-            : `${osmNodeIdB}-${osmNodeIdA}`;
-    }
-
-    #buildBaseStatsText() {
-        const graph = this.state.graph;
-        if (!graph) return '';
+    buildBaseStatsText() {
+        const g = this.state.graph;
+        if (!g) return '';
 
         return [
-            `Graph nodes: ${graph.nodes.length}`,
-            `Road segments: ${graph.segments.size}`,
-            `Directed edges: ${graph.directedEdgesCount}`,
-            `OSM ways: ${graph.osmWaysCount}`,
-            `Profile: ${graph.profile === 'car' ? 'Car' : 'Walk'}`,
+            `Graph nodes: ${g.nodes.length}`,
+            `Road segments: ${g.segments.size}`,
+            `Directed edges: ${g.directedEdgesCount}`,
+            `OSM ways: ${g.osmWaysCount}`,
+            `Profile: ${g.profile === 'car' ? 'Car' : 'Walk'}`,
             `A: ${this.state.startNodeId ?? '-'}`,
             `B: ${this.state.endNodeId ?? '-'}`
         ].join('\n');
     }
 
-    #updateLiveStats(progressOverride = null, finalMeta = null) {
-        const graph = this.state.graph;
-        const counters = this.state.searchCounters;
+    updateLiveStats(progressOverride = null, finalMeta = null) {
+        const g = this.state.graph;
+        const c = this.state.counters;
 
-        if (!graph || !counters) {
-            this.ui.setStats(this.#buildBaseStatsText());
+        if (!g || !c) {
+            this.ui.setStats(this.buildBaseStatsText());
             return;
         }
 
         const progress = progressOverride || this.animator.getProgress();
-        const meta = progress.meta || finalMeta || null;
+        const meta = finalMeta || progress.meta || null;
 
         const lines = [
-            `Algorithm: ${meta?.algorithm === 'astar' ? 'A*' : (meta?.algorithm === 'dijkstra' ? 'Dijkstra' : '-')}`,
+            `Algorithm: ${meta?.algorithmName || '-'}`,
+            `Optimal: ${meta?.optimal ? 'YES' : 'NO'}`,
             `Animation step: ${progress.index ?? 0}/${progress.total ?? 0}`,
-            `Open nodes seen: ${counters.openNodeIds.size}`,
-            `Closed nodes: ${counters.closedCount}`,
-            `Inspected segments: ${counters.inspectedSegmentKeys.size}`,
-            `Relaxed segments: ${counters.relaxedSegmentKeys.size}`,
+            `Open nodes seen: ${c.openNodes.size}`,
+            `Closed nodes: ${c.closedCount}`,
+            `Inspected segments: ${c.inspectedSegments.size}`,
+            `Relaxed segments: ${c.relaxedSegments.size}`,
             `A: ${this.state.startNodeId ?? '-'}`,
             `B: ${this.state.endNodeId ?? '-'}`
         ];
 
-        if (counters.pathFound) {
+        if (c.pathFound) {
             lines.push(`Route found: YES`);
-            lines.push(`Path nodes: ${counters.pathNodeCount}`);
-            lines.push(`Path cost: ${counters.pathCostMeters.toFixed(1)} m`);
+            lines.push(`Path nodes: ${c.pathNodeCount}`);
+            lines.push(`Path cost: ${c.pathCostMeters.toFixed(1)} m`);
         } else {
             lines.push(`Route found: not yet / no`);
+        }
+
+        if (meta?.notes) {
+            lines.push(`Notes: ${meta.notes}`);
         }
 
         if (finalMeta) {
             lines.push('');
             lines.push('Execution summary:');
-            lines.push(`- expanded nodes: ${finalMeta.expandedNodes}`);
-            lines.push(`- inspected edges: ${finalMeta.inspectedEdges}`);
-            lines.push(`- relaxed edges: ${finalMeta.relaxedEdges}`);
-            lines.push(`- path edges: ${finalMeta.pathEdgeCount}`);
+            lines.push(`- expanded nodes: ${finalMeta.expandedNodes ?? '-'}`);
+            lines.push(`- inspected edges: ${finalMeta.inspectedEdges ?? '-'}`);
+            lines.push(`- relaxed edges: ${finalMeta.relaxedEdges ?? '-'}`);
+            lines.push(`- path edges: ${finalMeta.pathEdgeCount ?? '-'}`);
         }
 
         this.ui.setStats(lines.join('\n'));
