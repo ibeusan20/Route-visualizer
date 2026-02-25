@@ -473,7 +473,10 @@ export class AppController {
         const endNode = this.state.graph.nodes[this.state.endNodeId];
 
         // Cache key so it doesn't refetch for the same A/B
-        const cacheKey = `${startNode.lat},${startNode.lng}|${endNode.lat},${endNode.lng}|${this.state.graph.profile}`;
+        const { baseUrl, profile } = this.getReferenceEndpointForCurrentProfile();
+        const cacheKey =
+            `${startNode.lat},${startNode.lng}|${endNode.lat},${endNode.lng}` +
+            `|graph=${this.state.graph.profile}|ref=${baseUrl}|${profile}`;
         if (!force && this.state.reference.cacheKey === cacheKey && this.referenceRouteRenderer.cachedLatLngs) {
             this.referenceRouteRenderer.setVisible(true);
             this.ui.setStatus('Reference route shown (cached).');
@@ -484,9 +487,12 @@ export class AppController {
         this.ui.setStatus('Fetching reference route from OSRM demo server...');
         this.ui.setReferenceRefreshDisabled(true);
         try {
+            const { baseUrl, profile } = this.getReferenceEndpointForCurrentProfile();
+
             const result = await this.referenceRoutingService.fetchRoute(
                 { lat: startNode.lat, lng: startNode.lng },
-                { lat: endNode.lat, lng: endNode.lng }
+                { lat: endNode.lat, lng: endNode.lng },
+                { baseUrl, profile }
             );
 
             this.state.reference.cacheKey = cacheKey;
@@ -503,8 +509,17 @@ export class AppController {
             this.updateLiveStats();
         } catch (err) {
             console.error(err);
-            this.ui.setStatus(`Reference route failed: ${err.message}`);
-            // If fetch fails, keep it hidden (optional)
+
+            const mode = this.state.graph?.profile;
+            if (mode === 'walk') {
+                this.ui.setStatus(
+                    'Reference route failed for WALK. The OSRM demo server usually supports only driving. ' +
+                    'Configure a walking-capable OSRM endpoint in config.js (referenceRouting.endpoints.walk).'
+                );
+            } else {
+                this.ui.setStatus(`Reference route failed: ${err.message}`);
+            }
+
             this.referenceRouteRenderer.hide();
         } finally {
             this.state.reference.loading = false;
@@ -520,5 +535,18 @@ export class AppController {
         }
         // force fetch regardless of cache
         await this.updateReferenceRouteIfPossible({ force: true });
+    }
+
+    getReferenceEndpointForCurrentProfile() {
+        const refCfg = this.referenceRoutingService.config; // from APP_CONFIG.referenceRouting
+        const mode = this.state.graph?.profile; // 'car' | 'walk'
+
+        const endpoint = refCfg?.endpoints?.[mode];
+        if (!endpoint) {
+            // fallback to car if somehow missing
+            return refCfg.endpoints.car;
+        }
+
+        return endpoint;
     }
 }

@@ -13,9 +13,17 @@ export const APP_CONFIG = {
         timeoutSeconds: 25
     },
     referenceRouting: {
-        // OSRM demo server endpoint (demo only – avoid heavy usage)
-        baseUrl: 'https://router.project-osrm.org',
-        profile: 'driving', // OSRM expects /route/v1/{profile}/...
+        // Default OSRM server (demo). Good for car/driving only on the demo host.
+        endpoints: {
+            car: {
+                baseUrl: 'https://router.project-osrm.org',
+                profile: 'driving'
+            },
+            walk: {
+                baseUrl: 'https://router.project-osrm.org',
+                profile: 'foot' // will likely NOT work on the demo server
+            }
+        },
         geometries: 'geojson',
         overview: 'full'
     }

@@ -2,10 +2,7 @@ import { APP_CONFIG } from '../config.js';
 
 export class ReferenceRoutingService {
     constructor(config = APP_CONFIG.referenceRouting) {
-        this.baseUrl = config.baseUrl;
-        this.profile = config.profile;
-        this.geometries = config.geometries;
-        this.overview = config.overview;
+        this.config = config;
     }
 
     /**
@@ -13,15 +10,16 @@ export class ReferenceRoutingService {
      * OSRM expects lon,lat order in URL.
      * Returns { latLngs, distanceMeters, durationSeconds }.
      */
-    async fetchRoute(startLatLng, endLatLng) {
+    async fetchRoute(startLatLng, endLatLng, { baseUrl, profile } = {}) {
         const url =
-            `${this.baseUrl}/route/v1/${this.profile}` +
+            `${baseUrl}/route/v1/${profile}` +
             `/${startLatLng.lng},${startLatLng.lat};${endLatLng.lng},${endLatLng.lat}` +
-            `?overview=${encodeURIComponent(this.overview)}` +
-            `&geometries=${encodeURIComponent(this.geometries)}`;
+            `?overview=${encodeURIComponent(this.config.overview)}` +
+            `&geometries=${encodeURIComponent(this.config.geometries)}`;
 
         const res = await fetch(url);
         if (!res.ok) {
+            // OSRM demo server often returns 404 for unsupported profiles
             throw new Error(`OSRM HTTP ${res.status}`);
         }
 
