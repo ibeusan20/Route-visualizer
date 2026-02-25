@@ -10,7 +10,30 @@ export const APP_CONFIG = {
     },
     overpass: {
         endpoint: 'https://overpass-api.de/api/interpreter',
-        timeoutSeconds: 25
+        timeoutSeconds: 25,
+
+        smartLoading: {
+            // do ove veličine (km²) povlači “full” mrežu (gradska razina)
+            fullMaxAreaKm2: 25,
+
+            // do ove veličine (km² povlači "coarse" (glavne ceste), 1 upit
+            coarseMaxAreaKm2: 400,
+
+            // do ove veličine pokušaj "coarse + tiling"
+            tiledMaxAreaKm2: 2500,
+
+            // tile ciljna veličina (km²) - veće područje = više tileova
+            targetTileAreaKm2: 60,
+
+            // limit tileova (da ne ubiješ server i browser)
+            maxTiles: 16,
+
+            // pauza između tile upita (ms) - budi pristojan prema Overpassu
+            delayBetweenTilesMs: 450,
+
+            // retry za povremene greške (429/5xx)
+            maxRetries: 3
+        }
     },
     referenceRouting: {
         // Default OSRM server (demo). Good for car/driving only on the demo host.

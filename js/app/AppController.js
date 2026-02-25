@@ -26,7 +26,8 @@ export class AppController {
             startNodeId: null,
             endNodeId: null,
             loadingRoads: false,
-            counters: null
+            counters: null,
+            lastViewportAreaKm2: null,
         };
 
         this.referenceRoutingService = new ReferenceRoutingService();
@@ -67,6 +68,9 @@ export class AppController {
     async loadRoadNetworkFromCurrentView() {
         if (this.state.loadingRoads) return;
 
+        const areaKm2 = this.mapManager.getViewportAreaKm2();
+        this.state.lastViewportAreaKm2 = areaKm2;
+
         this.stopAndResetSearch(true);
         this.clearPointsOnly(false);
 
@@ -86,8 +90,26 @@ export class AppController {
             const profile = this.ui.getSelectedProfile();
             this.ui.setStatus('Loading road network from Overpass API...');
 
-            const overpassJson = await this.overpassService.fetchRoadData(this.mapManager.getBounds(), profile);
+            const { overpassJson, meta } = await this.overpassService.fetchRoadDataSmart(
+                this.mapManager.getBounds(),
+                profile,
+                {
+                    areaKm2,
+                    onProgress: (p) => this.ui.setStatus(p.message)
+                }
+            );
+
             const graph = this.roadGraphBuilder.buildFromOverpass(overpassJson, profile);
+
+            // U status/stats dodaj info o načinu učitavanja
+            const modeText = meta.tiled
+                ? `COARSE + TILES (${meta.tiles})`
+                : (meta.detail === 'coarse' ? 'COARSE' : 'FULL');
+
+            this.ui.setStatus(
+                `Road network loaded (${modeText}). Click A then B. ` +
+                `(nodes: ${graph.nodes.length}, segments: ${graph.segments.size})`
+            );
 
             if (!graph.nodes.length || !graph.segments.size) {
                 throw new Error('No usable roads found in this view. Try another area or zoom in.');
@@ -367,6 +389,8 @@ export class AppController {
         const g = this.state.graph;
         if (!g) return '';
 
+        const area = this.state.lastViewportAreaKm2;
+
         return [
             `Graph nodes: ${g.nodes.length}`,
             `Road segments: ${g.segments.size}`,
@@ -374,7 +398,8 @@ export class AppController {
             `OSM ways: ${g.osmWaysCount}`,
             `Profile: ${g.profile === 'car' ? 'Car' : 'Walk'}`,
             `A: ${this.state.startNodeId ?? '-'}`,
-            `B: ${this.state.endNodeId ?? '-'}`
+            `B: ${this.state.endNodeId ?? '-'}`,
+            `Viewport area: ${Number.isFinite(area) ? `~${area.toFixed(1)} km²` : '-'}`,
         ].join('\n');
     }
 
