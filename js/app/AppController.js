@@ -52,7 +52,8 @@ export class AppController {
             onResetColors: () => this.resetColors(),
             onStart: () => this.startSearch(),
             onPause: () => this.togglePause(),
-            onReferenceToggle: (enabled) => this.onReferenceToggle(enabled)
+            onReferenceToggle: (enabled) => this.onReferenceToggle(enabled),
+            onRefreshReference: () => this.refreshReferenceRoute()
         });
 
         this.mapManager.onMapClick((event) => this.handleMapClick(event));
@@ -458,7 +459,7 @@ export class AppController {
         await this.updateReferenceRouteIfPossible();
     }
 
-    async updateReferenceRouteIfPossible() {
+    async updateReferenceRouteIfPossible({ force = false } = {}) {
         if (!this.state.reference.enabled) return;
         if (this.state.reference.loading) return;
         if (!this.state.graph) return;
@@ -473,7 +474,7 @@ export class AppController {
 
         // Cache key so it doesn't refetch for the same A/B
         const cacheKey = `${startNode.lat},${startNode.lng}|${endNode.lat},${endNode.lng}|${this.state.graph.profile}`;
-        if (this.state.reference.cacheKey === cacheKey && this.state.referenceRouteRenderer.cachedLatLngs) {
+        if (!force && this.state.reference.cacheKey === cacheKey && this.referenceRouteRenderer.cachedLatLngs) {
             this.referenceRouteRenderer.setVisible(true);
             this.ui.setStatus('Reference route shown (cached).');
             return;
@@ -481,7 +482,7 @@ export class AppController {
 
         this.state.reference.loading = true;
         this.ui.setStatus('Fetching reference route from OSRM demo server...');
-
+        this.ui.setReferenceRefreshDisabled(true);
         try {
             const result = await this.referenceRoutingService.fetchRoute(
                 { lat: startNode.lat, lng: startNode.lng },
@@ -492,7 +493,10 @@ export class AppController {
             this.state.reference.distanceMeters = result.distanceMeters;
             this.state.reference.durationSeconds = result.durationSeconds;
 
-            this.referenceRouteRenderer.setRoute(result.latLngs);
+            this.referenceRouteRenderer.setRoute(result.latLngs, {
+                distanceMeters: result.distanceMeters,
+                durationSeconds: result.durationSeconds
+            });
             this.referenceRouteRenderer.setVisible(true);
 
             this.ui.setStatus('Reference route loaded (OSRM).');
@@ -504,6 +508,17 @@ export class AppController {
             this.referenceRouteRenderer.hide();
         } finally {
             this.state.reference.loading = false;
+            this.ui.setReferenceRefreshDisabled(false);
         }
+    }
+
+    async refreshReferenceRoute() {
+        // Works without toggling; will fetch and update cache
+        if (!this.state.reference?.enabled) {
+            this.ui.setStatus('Reference route is OFF. Enable it first to refresh.');
+            return;
+        }
+        // force fetch regardless of cache
+        await this.updateReferenceRouteIfPossible({ force: true });
     }
 }

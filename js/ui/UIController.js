@@ -7,14 +7,17 @@ export class UIController {
             profile: document.getElementById('profile'),
             speed: document.getElementById('speed'),
             speedValue: document.getElementById('speedValue'),
+            toggleReferenceRoute: document.getElementById('toggleReferenceRoute'),
+
             btnLoadRoads: document.getElementById('btnLoadRoads'),
             btnClearPoints: document.getElementById('btnClearPoints'),
             btnResetColors: document.getElementById('btnResetColors'),
             btnStart: document.getElementById('btnStart'),
             btnPause: document.getElementById('btnPause'),
+            btnRefreshReference: document.getElementById('btnRefreshReference'),
+
             status: document.getElementById('status'),
-            stats: document.getElementById('stats'),
-            toggleReferenceRoute: document.getElementById('toggleReferenceRoute')
+            stats: document.getElementById('stats')
         };
 
         this.initSpeedLabel();
@@ -33,18 +36,18 @@ export class UIController {
         this.elements.btnResetColors.addEventListener('click', handlers.onResetColors);
         this.elements.btnStart.addEventListener('click', handlers.onStart);
         this.elements.btnPause.addEventListener('click', handlers.onPause);
+
         if (this.elements.toggleReferenceRoute && handlers.onReferenceToggle) {
             this.elements.toggleReferenceRoute.addEventListener('change', (e) => {
                 handlers.onReferenceToggle(e.target.checked);
             });
         }
+
+        if (this.elements.btnRefreshReference && handlers.onRefreshReference) {
+            this.elements.btnRefreshReference.addEventListener('click', handlers.onRefreshReference);
+        }
     }
 
-    /**
-     * Populate algorithm dropdown from registry definitions.
-     * @param {Array<{key: string, label: string}>} definitions
-     * @param {string} defaultKey
-     */
     populateAlgorithmOptions(definitions, defaultKey) {
         const select = this.elements.algorithm;
         select.innerHTML = '';
@@ -65,15 +68,31 @@ export class UIController {
     }
 
     getSelectedProfile() {
-        return this.elements.profile.value; // car | walk
+        return this.elements.profile.value;
     }
 
     getAnimationSpeedMs() {
         return clamp(parseInt(this.elements.speed.value, 10) || 8, 1, 100);
     }
 
+    isReferenceRouteEnabled() {
+        return Boolean(this.elements.toggleReferenceRoute?.checked);
+    }
+
+    setReferenceRouteEnabled(enabled) {
+        if (this.elements.toggleReferenceRoute) {
+            this.elements.toggleReferenceRoute.checked = Boolean(enabled);
+        }
+    }
+
     setLoadButtonDisabled(disabled) {
         this.elements.btnLoadRoads.disabled = Boolean(disabled);
+    }
+
+    setReferenceRefreshDisabled(disabled) {
+        if (this.elements.btnRefreshReference) {
+            this.elements.btnRefreshReference.disabled = Boolean(disabled);
+        }
     }
 
     setPauseButtonLabel(text) {
@@ -86,15 +105,5 @@ export class UIController {
 
     setStats(text) {
         this.elements.stats.textContent = text || '';
-    }
-
-    isReferenceRouteEnabled() {
-        return Boolean(this.elements.toggleReferenceRoute?.checked);
-    }
-
-    setReferenceRouteEnabled(enabled) {
-        if (this.elements.toggleReferenceRoute) {
-            this.elements.toggleReferenceRoute.checked = Boolean(enabled);
-        }
     }
 }
